@@ -21,6 +21,8 @@ const bilibiliSource = new BilibiliSource();
 const youkuSource = new YoukuSource();
 const bahamutSource = new BahamutSource();
 
+const DandanUserAgent = `LogVar Danmu API/${globals.version}`
+
 // =====================
 // 获取弹弹play弹幕
 // =====================
@@ -45,7 +47,7 @@ export default class DandanSource extends BaseSource {
           const resp = await httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=/v2/search/anime?keyword=${keyword}`, {
             headers: {
               "Content-Type": "application/json",
-              "User-Agent": `LogVar Danmu API/${globals.version}`,
+              "User-Agent": DandanUserAgent,
             },
           });
 
@@ -100,7 +102,7 @@ export default class DandanSource extends BaseSource {
           const resp = await httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=/v2/search/episodes?anime=${encodeURIComponent(tmdbTitle)}`, {
             headers: {
               "Content-Type": "application/json",
-              "User-Agent": `LogVar Danmu API/${globals.version}`,
+              "User-Agent": DandanUserAgent,
             },
             signal: tmdbAbortController.signal,
           });
@@ -118,6 +120,12 @@ export default class DandanSource extends BaseSource {
           }
 
           const animes = resp.data.animes;
+          
+          // 标记 TMDB 来源，供后续处理环节识别以跳过常规标题匹配
+          for (const anime of animes) {
+            anime.isTmdbSource = true;
+          }
+
           log("info", `dandanSearchresp (tmdb): ${JSON.stringify(animes)}`);
           log("info", `[Dandan] 返回 ${animes.length} 条结果 (source: tmdb)`);
           return { success: true, data: animes, source: 'tmdb' };
@@ -178,7 +186,7 @@ export default class DandanSource extends BaseSource {
       const resp = await httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=/v2/bangumi/${id}`, {
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": `LogVar Danmu API/${globals.version}`,
+          "User-Agent": DandanUserAgent,
         },
       });
 
@@ -241,7 +249,7 @@ export default class DandanSource extends BaseSource {
   }
 
   // 处理并转换番剧信息
-  async handleAnimes(sourceAnimes, queryTitle, curAnimes) {
+  async handleAnimes(sourceAnimes, queryTitle, curAnimes, detailStore = null) {
     const tmpAnimes = [];
 
     // 添加错误处理，确保sourceAnimes是数组
@@ -297,8 +305,8 @@ export default class DandanSource extends BaseSource {
           const allTitles = [anime.animeTitle, ...aliases];
           let isMatch = false;
 
-          if (anime.isRelated) {
-            // 相关作品逻辑：仅执行单纯的季度过滤，跳过常规标题匹配，防止译名差距大误判
+          if (anime.isRelated || anime.isTmdbSource) {
+            // 相关作品及TMDB原名搜索结果逻辑：仅执行单纯的季度过滤，跳过常规标题匹配，防止标题语言差异导致误判
             const querySeason = getExplicitSeasonNumber(queryTitle);
             if (querySeason !== null) {
               let titleSeason = null;
@@ -365,7 +373,7 @@ export default class DandanSource extends BaseSource {
             tmpAnimes.push(transformedAnime);
 
             // 添加到全局缓存
-            addAnime({...transformedAnime, links: links});
+            addAnime({...transformedAnime, links: links}, detailStore);
 
             // 维护缓存大小
             if (globals.animes.length > globals.MAX_ANIMES) removeEarliestAnime();
@@ -393,7 +401,7 @@ export default class DandanSource extends BaseSource {
       const dandanPromise = httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=%2Fv2%2Fcomment%2F${id}%3Ffrom%3D0%26withRelated%3Dtrue%26chConvert%3D0`, {
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "User-Agent": DandanUserAgent,
         },
         retries: 1,
       }).catch(e => { log('error', `dandan base comments error: ${e.message}`); return null; });
@@ -405,7 +413,7 @@ export default class DandanSource extends BaseSource {
         relatedPromise = httpGet(`https://api.danmaku.weeblify.app/ddp/v1?path=/v2/related/${id}`, {
           headers: {
             "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": DandanUserAgent,
           },
           retries: 1,
         }).catch(e => { log('error', `dandan related data error: ${e.message}`); return null; });
